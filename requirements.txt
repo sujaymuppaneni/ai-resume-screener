@@ -1,0 +1,8 @@
+pymupdf
+pdfplumber
+spacy
+nltk
+scikit-learn
+sentence-transformers
+pandas
+streamlit
