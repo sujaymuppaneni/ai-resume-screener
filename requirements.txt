@@ -1,4 +1,6 @@
 streamlit
+pandas
+pdfplumber
 PyMuPDF
-spacy
 scikit-learn
+sentence-transformers
