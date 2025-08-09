@@ -1,75 +1,62 @@
 import streamlit as st
-import pdfplumber
-import re
+import fitz
 import spacy
+import subprocess
+import importlib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
-import numpy as np
-import pandas as pd
 
-# Load models
-nlp = spacy.load("en_core_web_sm")
-model = SentenceTransformer('all-MiniLM-L6-v2')
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
+    importlib.invalidate_caches()
+    nlp = spacy.load("en_core_web_sm")
 
-# Functions
-def extract_text_from_pdf(file):
-    text = ""
-    with pdfplumber.open(file) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-    return text
+st.set_page_config(page_title="AI Resume Screener", page_icon="📄", layout="wide")
 
-def clean_text(text):
-    text = re.sub(r'\s+', ' ', text)
-    text = text.lower()
-    text = re.sub(r'[^a-z0-9\s]', '', text)
-    return text.strip()
+st.title("📄 AI Resume Screener & Matcher")
 
-def calculate_match_score(resume_text, jd_text):
-    documents = [resume_text, jd_text]
-    vectorizer = TfidfVectorizer()
-    tfidf_matrix = vectorizer.fit_transform(documents)
-    score = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-    return round(score * 100, 2)
+st.markdown("""
+Upload your **resume** and paste a **job description** to see:
+- ✅ Your **match score**
+- 🔍 **Missing important keywords**
+- 📄 Extracted resume text
+""")
 
-def calculate_semantic_score(resume_text, jd_text):
-    embeddings = model.encode([resume_text, jd_text])
-    cosine_sim = np.dot(embeddings[0], embeddings[1]) / (np.linalg.norm(embeddings[0]) * np.linalg.norm(embeddings[1]))
-    return round(cosine_sim * 100, 2)
+uploaded_file = st.file_uploader("Upload your resume (PDF format only)", type=["pdf"])
+job_description = st.text_area("Paste the Job Description here", height=200)
 
-def calculate_final_score(resume_text, jd_text, weight_tfidf=0.4, weight_semantic=0.6):
-    tfidf_score = calculate_match_score(resume_text, jd_text)
-    semantic_score = calculate_semantic_score(resume_text, jd_text)
-    final_score = (tfidf_score * weight_tfidf) + (semantic_score * weight_semantic)
-    return round(final_score, 2), tfidf_score, semantic_score
+if uploaded_file is not None:
+    with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
+        resume_text = ""
+        for page in doc:
+            resume_text += page.get_text()
 
-# Streamlit App
-st.title("📄 AI Resume Screener")
-st.write("Upload one or more resumes and a job description to get match scores.")
+    st.subheader("📄 Extracted Resume Text")
+    st.write(resume_text if resume_text.strip() else "⚠ No text found in resume. Check if the PDF is scanned.")
 
-jd_input = st.text_area("Paste Job Description here:")
-uploaded_resumes = st.file_uploader("Upload PDF Resumes", type=["pdf"], accept_multiple_files=True)
+    if job_description.strip():
+        vectorizer = TfidfVectorizer()
+        vectors = vectorizer.fit_transform([resume_text, job_description])
+        similarity_score = cosine_similarity(vectors[0:1], vectors[1:2])[0][0] * 100
 
-if st.button("Run Matching"):
-    if jd_input and uploaded_resumes:
-        cleaned_jd = clean_text(jd_input)
-        results = []
+        st.subheader("📊 Match Score")
+        st.write(f"✅ Your resume matches **{similarity_score:.2f}%** with the job description")
 
-        for resume_file in uploaded_resumes:
-            extracted_text = extract_text_from_pdf(resume_file)
-            cleaned_resume = clean_text(extracted_text)
-            final_score, tfidf_score, semantic_score = calculate_final_score(cleaned_resume, cleaned_jd)
-            results.append({
-                "Resume": resume_file.name,
-                "Final Score (%)": final_score,
-                "TF-IDF Score (%)": tfidf_score,
-                "Semantic Score (%)": semantic_score
-            })
+        resume_doc = nlp(resume_text.lower())
+        jd_doc = nlp(job_description.lower())
 
-        df = pd.DataFrame(results).sort_values(by="Final Score (%)", ascending=False).reset_index(drop=True)
-        st.dataframe(df)
-    else:
-        st.warning("Please enter a job description and upload at least one resume.")
+        resume_words = set([token.text for token in resume_doc if token.is_alpha and not token.is_stop])
+        jd_words = set([token.text for token in jd_doc if token.is_alpha and not token.is_stop])
+
+        missing_keywords = jd_words - resume_words
+
+        st.subheader("🔍 Missing Keywords")
+        if missing_keywords:
+            st.write(", ".join(sorted(missing_keywords)))
+        else:
+            st.write("🎉 No major keywords missing — great job!")
+
+else:
+    st.info("📌 Please upload your resume to get started.")
