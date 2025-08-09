@@ -1,9 +1,4 @@
-pymupdf
-pdfplumber
-nltk
-scikit-learn
-sentence-transformers
-pandas
 streamlit
-spacy==3.7.4
-https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1.tar.gz
+PyMuPDF
+spacy
+scikit-learn
